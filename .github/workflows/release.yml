@@ -3,9 +3,7 @@ name: Release
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - dev
+    branches: [main, dev]
 
 jobs:
   release:
@@ -29,47 +27,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Cache Gradle
-        uses: burrunan/gradle-cache-action@v3
-        with:
-          gradle-version: wrapper
-          read-only: false
-          save-generated-gradle-jars: true
-          save-local-build-cache: true
-          save-gradle-dependencies-cache: true
-          save-maven-dependencies-cache: true
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./gradlew :patches:buildAndroid clean
+        run: |
+          ./gradlew clean :patches:buildAndroid
 
       - name: List Build Artifacts
         run: ls -la patches/build/libs/
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Git tag
+        run: |
+          git tag v${{ github.run_number }}
+          git push origin v${{ github.run_number }}
+
+      - name: Create GitHub Release and upload asset
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
-          release_name: Release v${{ github.run_number }}
-          draft: false
+          name: Release v${{ github.run_number }}
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
           body: |
             Automatically generated release for commit ${{ github.sha }}.
             Patches built from branch ${{ github.ref_name }}.
-
-      - name: Upload Patches to Release
-        uses: actions/upload-release-asset@v1
+          files: |
+            patches/build/libs/patches-*.rvp
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: patches/build/libs/patches-*.rvp
-          asset_name: patches-v${{ github.run_number }}.rvp
-          asset_content_type: application/octet-stream
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -78,8 +65,7 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           fingerprint: ${{ vars.GPG_FINGERPRINT }}
 
-      - name: Attest
+      - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ReVanced Patches v${{ github.run_number }}
           subject-path: patches/build/libs/patches-*.rvp

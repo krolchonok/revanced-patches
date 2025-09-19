@@ -16,6 +16,7 @@ jobs:
       id-token: write
       attestations: write
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,7 +24,7 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Cache Gradle
@@ -41,20 +42,36 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
+      # ВАЖНО: запускаем semantic-release в "чистом" окружении, отключаем хуки и подпись коммитов,
+      # чтобы избежать E2BIG на шаге @semantic-release/git
+      - name: Release
+        id: release
+        shell: bash
+        run: |
+          git config --global core.hooksPath /dev/null
+          git config --global commit.gpgSign false
+          # Минимальное окружение. Добавьте сюда иные токены при необходимости публикаций.
+          env -i \
+            HOME="$HOME" \
+            PATH="$PATH" \
+            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
+            npx semantic-release
+        env:
+          # Страховка против запуска хуков, если где-то подтянется окружение
+          HUSKY: '0'
+          GIT_CONFIG_NOSYSTEM: '1'
+
+      # Если GPG нужен не для semantic-release, а для последующих действий,
+      # импортируем ключ ТОЛЬКО после успешного релиза.
       - name: Import GPG key
+        if: steps.release.outputs.new_release_published == 'true'
         uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           fingerprint: ${{ vars.GPG_FINGERPRINT }}
-
-      - name: Release
-        uses: cycjimmy/semantic-release-action@v4
-        id: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attest
         if: steps.release.outputs.new_release_published == 'true'

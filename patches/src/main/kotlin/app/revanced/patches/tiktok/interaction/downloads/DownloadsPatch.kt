@@ -6,8 +6,6 @@ import app.revanced.patcher.extensions.InstructionExtensions.addInstructionsWith
 import app.revanced.patcher.extensions.InstructionExtensions.replaceInstructions
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patches.tiktok.misc.extension.sharedExtensionPatch
-import app.revanced.patches.tiktok.misc.settings.settingsPatch
-import app.revanced.patches.tiktok.misc.settings.settingsStatusLoadFingerprint
 import app.revanced.util.getReference
 import app.revanced.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
@@ -19,12 +17,11 @@ val downloadsPatch = bytecodePatch(
 ) {
     dependsOn(
         sharedExtensionPatch,
-        settingsPatch,
     )
 
     compatibleWith(
-        "com.ss.android.ugc.trill"("36.5.4"),
-        "com.zhiliaoapp.musically"("36.5.4"),
+        "com.ss.android.ugc.trill",
+        "com.zhiliaoapp.musically",
     )
 
     execute {
@@ -56,37 +53,6 @@ val downloadsPatch = bytecodePatch(
                     :noremovewatermark
                     nop
                 """,
-        )
-
-        // Change the download path patch.
-        downloadUriFingerprint.method.apply {
-            val firstIndex = indexOfFirstInstructionOrThrow {
-                getReference<MethodReference>()?.name == "<init>"
-            }
-            val secondIndex = indexOfFirstInstructionOrThrow {
-                getReference<MethodReference>()?.returnType?.contains("Uri") == true
-            }
-
-            addInstructions(
-                secondIndex,
-                """
-                    invoke-static {}, Lapp/revanced/extension/tiktok/download/DownloadsPatch;->getDownloadPath()Ljava/lang/String;
-                    move-result-object v0
-                """,
-            )
-
-            addInstructions(
-                firstIndex,
-                """
-                    invoke-static {}, Lapp/revanced/extension/tiktok/download/DownloadsPatch;->getDownloadPath()Ljava/lang/String;
-                    move-result-object v0
-                """,
-            )
-        }
-
-        settingsStatusLoadFingerprint.method.addInstruction(
-            0,
-            "invoke-static {}, Lapp/revanced/extension/tiktok/settings/SettingsStatus;->enableDownload()V",
         )
     }
 }

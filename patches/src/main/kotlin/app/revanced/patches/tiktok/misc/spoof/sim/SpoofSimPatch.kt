@@ -1,12 +1,8 @@
 package app.revanced.patches.tiktok.misc.spoof.sim
 
-import app.revanced.patcher.extensions.InstructionExtensions.addInstruction
 import app.revanced.patcher.extensions.InstructionExtensions.addInstructions
 import app.revanced.patcher.extensions.InstructionExtensions.getInstruction
 import app.revanced.patcher.patch.bytecodePatch
-import app.revanced.patches.tiktok.misc.extension.sharedExtensionPatch
-import app.revanced.patches.tiktok.misc.settings.settingsPatch
-import app.revanced.patches.tiktok.misc.settings.settingsStatusLoadFingerprint
 import app.revanced.util.findMutableMethodOf
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -16,13 +12,9 @@ import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 @Suppress("unused")
 val spoofSimPatch = bytecodePatch(
     name = "SIM spoof",
-    description = "Spoofs the information which is retrieved from the SIM card.",
-    use = false,
+    description = "Подмена информации, получаемой из SIM-карты.",
+    use = true,
 ) {
-    dependsOn(
-        sharedExtensionPatch,
-        settingsPatch,
-    )
 
     compatibleWith(
         "com.ss.android.ugc.trill",
@@ -39,30 +31,30 @@ val spoofSimPatch = bytecodePatch(
             "getNetworkOperatorName" to "getOperatorName",
         )
 
-        // Find all api call to check sim information.
+        // какие значения ставим
+        val spoofValues = mapOf(
+            "getCountryIso" to "by",         // MCC=257, MNC=01
+            "getOperator" to "25701",        // numeric
+            "getOperatorName" to "A1 Belarus"
+        )
+
+        // поиск всех вызовов TelephonyManager и подготовка патчей
         buildMap {
             classes.forEach { classDef ->
-                classDef.methods.let { methods ->
-                    buildMap methodList@{
-                        methods.forEach methods@{ method ->
-                            with(method.implementation?.instructions ?: return@methods) {
-                                ArrayDeque<Pair<Int, String>>().also { patchIndices ->
-                                    this.forEachIndexed { index, instruction ->
-                                        if (instruction.opcode != Opcode.INVOKE_VIRTUAL) return@forEachIndexed
-
-                                        val methodRef =
-                                            (instruction as Instruction35c).reference as MethodReference
-                                        if (methodRef.definingClass != "Landroid/telephony/TelephonyManager;") return@forEachIndexed
-
-                                        replacements[methodRef.name]?.let { replacement ->
-                                            patchIndices.add(index to replacement)
-                                        }
-                                    }
-                                }.also { if (it.isEmpty()) return@methods }.let { patches ->
-                                    put(method, patches)
-                                }
+                val methods = classDef.methods
+                buildMap methodList@{
+                    methods.forEach methods@{ method ->
+                        val impl = method.implementation?.instructions ?: return@methods
+                        val patches = ArrayDeque<Pair<Int, String>>()
+                        impl.forEachIndexed { index, insn ->
+                            if (insn.opcode != Opcode.INVOKE_VIRTUAL) return@forEachIndexed
+                            val ref = (insn as Instruction35c).reference as MethodReference
+                            if (ref.definingClass != "Landroid/telephony/TelephonyManager;") return@forEachIndexed
+                            replacements[ref.name]?.let { replacement ->
+                                patches.add(index to replacement)
                             }
                         }
+                        if (patches.isNotEmpty()) put(method, patches)
                     }
                 }.also { if (it.isEmpty()) return@forEach }.let { methodPatches ->
                     put(classDef, methodPatches)
@@ -72,29 +64,24 @@ val spoofSimPatch = bytecodePatch(
             with(proxy(classDef).mutableClass) {
                 methods.forEach { (method, patches) ->
                     with(findMutableMethodOf(method)) {
-                        while (!patches.isEmpty()) {
-                            val (index, replacement) = patches.removeLast()
+                        while (patches.isNotEmpty()) {
+                            val (invokeIndex, replacementKey) = patches.removeLast()
 
-                            val resultReg = getInstruction<OneRegisterInstruction>(index + 1).registerA
+                            // сразу после invoke идёт move-result-object vA
+                            val resultReg = getInstruction<OneRegisterInstruction>(invokeIndex + 1).registerA
+                            val value = spoofValues.getValue(replacementKey) // гарантировано есть
 
-                            // Patch Android API and return fake sim information.
+                            // перезаписываем результат константой
                             addInstructions(
-                                index + 2,
+                                invokeIndex + 2,
                                 """
-                                    invoke-static {v$resultReg}, Lapp/revanced/extension/tiktok/spoof/sim/SpoofSimPatch;->$replacement(Ljava/lang/String;)Ljava/lang/String;
-                                    move-result-object v$resultReg
-                                """,
+                                    const-string v$resultReg, "$value"
+                                """.trimIndent(),
                             )
                         }
                     }
                 }
             }
         }
-
-        // Enable patch in settings.
-        settingsStatusLoadFingerprint.method.addInstruction(
-            0,
-            "invoke-static {}, Lapp/revanced/extension/tiktok/settings/SettingsStatus;->enableSimSpoof()V",
-        )
     }
 }

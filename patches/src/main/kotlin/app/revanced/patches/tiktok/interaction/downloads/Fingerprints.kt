@@ -30,17 +30,4 @@ internal val aclCommonShare3Fingerprint = fingerprint {
     }
 }
 
-internal val downloadUriFingerprint = fingerprint {
-    accessFlags(AccessFlags.PUBLIC, AccessFlags.STATIC)
-    returns("Landroid/net/Uri;")
-    parameters(
-        "Landroid/content/Context;",
-        "Ljava/lang/String;"
-    )
-    strings(
-        "/",
-        "/Camera",
-        "/Camera/",
-        "video/mp4"
-    )
-}
+

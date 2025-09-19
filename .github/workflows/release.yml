@@ -15,11 +15,13 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,44 +31,47 @@ jobs:
 
       - name: Cache Gradle
         uses: burrunan/gradle-cache-action@v3
+        with:
+          gradle-version: wrapper
+          read-only: false
+          save-generated-gradle-jars: true
+          save-local-build-cache: true
+          save-gradle-dependencies-cache: true
+          save-maven-dependencies-cache: true
 
       - name: Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :patches:buildAndroid clean
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-          cache: 'npm'
+      - name: List Build Artifacts
+        run: ls -la patches/build/libs/
 
-      - name: Install dependencies
-        run: npm ci
-
-      # ВАЖНО: запускаем semantic-release в "чистом" окружении, отключаем хуки и подпись коммитов,
-      # чтобы избежать E2BIG на шаге @semantic-release/git
-      - name: Release
-        id: release
-        shell: bash
-        run: |
-          git config --global core.hooksPath /dev/null
-          git config --global commit.gpgSign false
-          # Минимальное окружение. Добавьте сюда иные токены при необходимости публикаций.
-          env -i \
-            HOME="$HOME" \
-            PATH="$PATH" \
-            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-            npx semantic-release
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
         env:
-          # Страховка против запуска хуков, если где-то подтянется окружение
-          HUSKY: '0'
-          GIT_CONFIG_NOSYSTEM: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          draft: false
+          prerelease: ${{ github.ref == 'refs/heads/dev' }}
+          body: |
+            Automatically generated release for commit ${{ github.sha }}.
+            Patches built from branch ${{ github.ref_name }}.
 
-      # Если GPG нужен не для semantic-release, а для последующих действий,
-      # импортируем ключ ТОЛЬКО после успешного релиза.
+      - name: Upload Patches to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: patches/build/libs/patches-*.rvp
+          asset_name: patches-v${{ github.run_number }}.rvp
+          asset_content_type: application/octet-stream
+
       - name: Import GPG key
-        if: steps.release.outputs.new_release_published == 'true'
         uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -74,8 +79,7 @@ jobs:
           fingerprint: ${{ vars.GPG_FINGERPRINT }}
 
       - name: Attest
-        if: steps.release.outputs.new_release_published == 'true'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: 'ReVanced Patches ${{ steps.release.outputs.new_release_git_tag }}'
+          subject-name: ReVanced Patches v${{ github.run_number }}
           subject-path: patches/build/libs/patches-*.rvp

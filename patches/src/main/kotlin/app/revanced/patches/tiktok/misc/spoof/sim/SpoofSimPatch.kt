@@ -33,9 +33,9 @@ val spoofSimPatch = bytecodePatch(
 
         // какие значения ставим
         val spoofValues = mapOf(
-            "getCountryIso" to "by",         // MCC=257, MNC=01
-            "getOperator" to "25701",        // numeric
-            "getOperatorName" to "A1 Belarus"
+            "getCountryIso" to "jp",         // MCC=257, MNC=01
+            "getOperator" to "44010",        // numeric
+            "getOperatorName" to "NTT DoCoMo"
         )
 
         // поиск всех вызовов TelephonyManager и подготовка патчей
